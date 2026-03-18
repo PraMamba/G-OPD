@@ -319,14 +319,32 @@ class RayPPOTrainer:
         self.ref_tokenizer = ref_tokenizer
         self.use_ref_retokenization = ref_tokenizer is not None
 
-        if self.use_ref_retokenization:
+        # Critique distillation configuration
+        self.critique_vllm_url = config.algorithm.get("critique_vllm_url", None)
+        self.use_context_distillation = self.critique_vllm_url is not None
+        self.critique_model = config.algorithm.get("critique_model", None)
+        self.max_critique_tokens = config.algorithm.get("max_critique_tokens", 2048)
+        self.critique_temperature = config.algorithm.get("critique_temperature", 0.0)
+        self.critique_top_p = config.algorithm.get("critique_top_p", 1.0)
+
+        # Ref solution distillation configuration
+        self.use_ref_solution_distillation = config.algorithm.get("use_ref_solution_distillation", False)
+
+        if self.use_ref_retokenization or self.use_context_distillation or self.use_ref_solution_distillation:
             return_raw_chat = config.data.get("return_raw_chat", False)
             if not return_raw_chat:
                 raise ValueError(
-                    "When using a different tokenizer for ref model (ref_tokenizer is provided) "
+                    "When using a different tokenizer for ref model (ref_tokenizer is provided), "
+                    "context distillation (critique_vllm_url is provided), "
+                    "or ref solution distillation (use_ref_solution_distillation=True), "
                     "you must set data.return_raw_chat=True in config to enable re-tokenization. "
                     "This is needed to access the original messages for re-tokenizing with ref model's chat template."
                 )
+        
+        if self.use_context_distillation:
+            print(f"Context distillation enabled with vLLM URL: {self.critique_vllm_url}")
+        if self.use_ref_solution_distillation:
+            print("Ref solution distillation enabled")
 
         # Store base model paths for corrected reward computation
         self.base_model_path = config.actor_rollout_ref.model.get("base_model_path", None)
@@ -1173,8 +1191,46 @@ class RayPPOTrainer:
                                 "apply_chat_template_kwargs", {}
                             )
 
+                            # Context distillation: generate critiques and re-tokenize with critique-augmented prompts
+                            if self.use_context_distillation:
+                                from verl.trainer.ppo.ref_input_utils import prepare_critique_distillation_inputs
+                                
+                                batch = prepare_critique_distillation_inputs(
+                                    batch=batch,
+                                    tokenizer=self.tokenizer,
+                                    critique_vllm_url=self.critique_vllm_url,
+                                    critique_model=self.critique_model,
+                                    critique_prompt_template=None,
+                                    ref_apply_chat_template_kwargs=apply_chat_template_kwargs,
+                                    max_critique_tokens=self.max_critique_tokens,
+                                    critique_temperature=self.critique_temperature,
+                                    critique_top_p=self.critique_top_p,
+                                )
+
+                                if not self.ref_in_actor:
+                                    ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
+                                else:
+                                    ref_log_prob = self.actor_rollout_wg.compute_ref_log_prob(batch)
+                                batch = batch.union(ref_log_prob)
+
+                            # Ref solution distillation: use ref_solution from dataset as teacher context
+                            elif self.use_ref_solution_distillation:
+                                from verl.trainer.ppo.ref_input_utils import prepare_ref_model_inputs_based_on_correct_solution
+
+                                batch = prepare_ref_model_inputs_based_on_correct_solution(
+                                    batch=batch,
+                                    tokenizer=self.tokenizer,
+                                    apply_chat_template_kwargs=apply_chat_template_kwargs,
+                                )
+
+                                if not self.ref_in_actor:
+                                    ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
+                                else:
+                                    ref_log_prob = self.actor_rollout_wg.compute_ref_log_prob(batch)
+                                batch = batch.union(ref_log_prob)
+
                             # If ref model uses different tokenizer/prompt template, re-tokenize inputs for ref model
-                            if self.use_ref_retokenization:
+                            elif self.use_ref_retokenization:
                                 from verl.trainer.ppo.ref_input_utils import prepare_ref_model_inputs
                                 
                                 batch = prepare_ref_model_inputs(

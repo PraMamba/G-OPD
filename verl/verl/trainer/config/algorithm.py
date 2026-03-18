@@ -376,3 +376,9 @@ class AlgoConfig(BaseConfig):
     # Rollout Correction: corrects off-policy issues (policy mismatch, model staleness, distribution shifts)
     # Set to None to disable, use RolloutCorrectionConfig presets (e.g., .tis(), .mis()), or pass dict
     rollout_correction: Optional[RolloutCorrectionConfig] = None
+    critique_vllm_url: Optional[str] = None
+    critique_model: Optional[str] = None
+    max_critique_tokens: int = 2048
+    critique_temperature: float = 0.0
+    critique_top_p: float = 1.0
+    use_ref_solution_distillation: bool = False

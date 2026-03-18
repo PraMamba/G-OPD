@@ -7,6 +7,7 @@ We propose **G-OPD**, a generalized on-policy distillation framework, in which w
 ---------
 
 ## News
+- [2026.3.18] We update the code logic for our self-implemented **on-policy self/context-distillation**. For usage, please refer to [On-Policy Context-Distillation](#on-policy-context-distillation).
 - [2026.2.17] We release the training code and [data](https://huggingface.co/datasets/Keven16/G-OPD-Training-Data).
 - [2026.2.16] We release the evaluation code.
 - [2026.2.13] We release our paper on [arxiv](https://arxiv.org/abs/2602.12125).
@@ -216,6 +217,12 @@ python3 -m verl.trainer.main_ppo \
         trainer.total_epochs=3 $@
 ```
 
+### On-Policy Context-Distillation
+
+We also provide our self-implemented code for on-policy self/context-distillation methods. In such cases, the teacher distribution is the in-context learning distribution produced by the student model itself (we do not perform weight EMA here as we find it leads to training collapse easily, so we fix the teacher's weights to be the student's initial state) when it is given additional context. The additional context can be [a ground-truth solution](https://arxiv.org/pdf/2601.18734), [external feedback](https://arxiv.org/pdf/2601.20802), or [high-level experience](https://arxiv.org/pdf/2602.12275). 
+
+
+We provide an example to perform [OPSD](https://arxiv.org/pdf/2601.18734) in `./verl/examples/g_opd/run_qwen3-4b-context-distill.sh`, while our framework can also support other on-policy self-distillation methods. The corresponding data format can refer to this [format](https://huggingface.co/datasets/Keven16/OPSD-Example-Data). If you want to run on-policy context-distillation under other context settings, you can refer to and modify the relevant code in `./verl/verl/trainer/ppo/ref_input_utils.py`.
 
 ## Evaluation
 
